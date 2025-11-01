@@ -66,6 +66,10 @@ use_ubus.default = "0"
 at_port.placeholder = translate("Not null")
 at_port.rmempty = false
 
+force_set_apn = s:taboption("advanced", Flag, "force_set_apn", translate("Force Set APN"))
+force_set_apn.description = translate("If enabled, the APN will be set even if it matches the current configuration.(only works with tom modified version of quectel-cm)")
+force_set_apn.default = "0"
+
 bridge_mode = s:taboption("advanced", Flag, "en_bridge", translate("Bridge Mode"))
 bridge_mode.description = translate("Caution: Only avalible for quectel sdx 5G Modem.")
 bridge_mode.default = "0"
@@ -87,10 +91,8 @@ soft_reboot = s:taboption("advanced", Flag, "soft_reboot", translate("Soft Reboo
 soft_reboot.description = translate("enable modem soft reboot")
 soft_reboot.default = "0"
 
--- Connect Check
-connect_check = s:taboption("advanced", Flag, "connect_check", translate("V4/V6 Connect Check"))
-connect_check.description = translate("Only for AT dial modem.")
-connect_check.default = "0"
+-- pdp_index
+pdp_index = s:taboption("advanced", Value, "pdp_index", translate("PDP Context Index"))
 
 -- 网络类型
 pdp_type= s:taboption("advanced", ListValue, "pdp_type", translate("PDP Type"))
@@ -132,11 +134,30 @@ apn:value("internet.globe.com.ph", translate("Globe Postpaid (PH)"))
 apn:value("internet", translate("Smart Communications (PH)"))
 apn:value("internet.dito.ph", translate("Dito Telecomunity (PH)"))
 
+-- Malaysia (MY)
+apn:value("celcom3g", translate("Celcom (MY)"))
+apn:value("diginet", translate("DiGi (MY)"))
+apn:value("unet", translate("Maxis | Hotlink (MY)"))
+apn:value("hos", translate("Maxis UT (MY)"))
+apn:value("yes4g", translate("YES (MY)"))
+apn:value("my3g", translate("UMobile (MY)"))
+apn:value("unifi", translate("Unifi (MY)"))
+
+-- Russia (RU)
+apn:value("internet.beeline.ru", translate("Beeline (RU)"))
+apn:value("internet.mts.ru", translate("MTS (RU)"))
+apn:value("internet", translate("Megafon (RU)"))
+apn:value("internet.tele2.ru", translate("Tele2 (RU)"))
+apn:value("internet.yota", translate("Yota (RU)"))
+apn:value("m.tinkoff", translate("T-mobile (RU)"))
+apn:value("internet.rtk.ru", translate("Rostelecom (RU)"))
+apn:value("internet.sberbank-tele.com", translate("Sber Mobile (RU)"))
+
 auth = s:taboption("advanced", ListValue, "auth", translate("Authentication Type"))
 auth.default = "none"
 auth.rmempty = false
 auth:value("none", translate("NONE"))
-auth:value("both", translate("PAP/CHAP (both)"))
+auth:value("MsChapV2", translate("MsChapV2"))
 auth:value("pap", "PAP")
 auth:value("chap", "CHAP")
 
@@ -187,6 +208,25 @@ apn:value("http.globe.com.ph", translate("Globe Prepaid (PH)"))
 apn:value("internet.globe.com.ph", translate("Globe Postpaid (PH)"))
 apn:value("internet", translate("Smart Communications (PH)"))
 apn:value("internet.dito.ph", translate("Dito Telecomunity (PH)"))
+
+-- Malaysia (MY)
+apn:value("celcom3g", translate("Celcom (MY)"))
+apn:value("diginet", translate("DiGi (MY)"))
+apn:value("unet", translate("Maxis | Hotlink (MY)"))
+apn:value("hos", translate("Maxis UT (MY)"))
+apn:value("yes4g", translate("YES (MY)"))
+apn:value("my3g", translate("UMobile (MY)"))
+apn:value("unifi", translate("Unifi (MY)"))
+
+-- Russia (RU)
+apn:value("internet.beeline.ru", translate("Beeline (RU)"))
+apn:value("internet.mts.ru", translate("MTS (RU)"))
+apn:value("internet", translate("Megafon (RU)"))
+apn:value("internet.tele2.ru", translate("Tele2 (RU)"))
+apn:value("internet.yota", translate("Yota (RU)"))
+apn:value("m.tinkoff", translate("T-mobile (RU)"))
+apn:value("internet.rtk.ru", translate("Rostelecom (RU)"))
+apn:value("internet.sberbank-tele.com", translate("Sber Mobile (RU)"))
 
 metric = s:taboption("advanced", Value, "metric", translate("Metric"))
 metric.description = translate("The metric value is used to determine the priority of the route. The smaller the value, the higher the priority. Cannot duplicate.")

@@ -62,7 +62,7 @@ set system.n${cfg_name}.name=${modem_slot}_net_indicator
 set system.n${cfg_name}.sysfs=${net_led}
 set system.n${cfg_name}.trigger=netdev
 set system.n${cfg_name}.dev=${modem_netcard}
-set system.n${cfg_name}.mode="tx rx"
+set system.n${cfg_name}.mode="link tx rx"
 commit system
 EOF
 
@@ -137,7 +137,9 @@ update_config()
     config_get at_port $modem_config at_port
     config_get manufacturer $modem_config manufacturer
     config_get platform $modem_config platform
+    config_get force_set_apn $modem_config force_set_apn
     config_get pdp_index $modem_config pdp_index
+    [ -n "$pdp_index" ] && userset_pdp_index="1" || userset_pdp_index="0"
     config_get suggest_pdp_index $modem_config suggest_pdp_index
     [ -z "$suggest_pdp_index"] && suggest_pdp_index=$(get_platform_suggest_pdp_index)
     [ -z "$pdp_index" ] && pdp_index=$suggest_pdp_index
@@ -146,7 +148,6 @@ update_config()
     config_get en_bridge $modem_config en_bridge
     config_get do_not_add_dns $modem_config do_not_add_dns
     config_get dns_list $modem_config dns_list
-    config_get connect_check $modem_config connect_check
     config_get global_dial main enable_dial
     # config_get ethernet_5g u$modem_config ethernet 转往口获取命令更新，待测试
     config_foreach get_associate_ethernet_by_path modem-slot
@@ -156,7 +157,7 @@ update_config()
     update_sim_slot
     case $sim_slot in
         1)
-        config_get apn $modem_config apn "auto"
+        config_get apn $modem_config apn
         config_get username $modem_config username
         config_get password $modem_config password
         config_get auth $modem_config auth
@@ -168,7 +169,7 @@ update_config()
         config_get password $modem_config password2
         config_get auth $modem_config auth2
         config_get pincode $modem_config pincode2
-        [ -z "$apn" ] && config_get apn $modem_config apn "auto"
+        [ -z "$apn" ] && config_get apn $modem_config apn
         [ -z "$username" ] && config_get username $modem_config username
         [ -z "$password" ] && config_get password $modem_config password
         [ -z "$auth" ] && config_get auth $modem_config auth
@@ -298,30 +299,6 @@ check_ip()
             connection_status="-1"
             m_debug "at port response unexpected $ipaddr"
         fi
-}
-
-check_connection()
-{
-    [ "$connection_status" = "0" ] || [ "$connection_status" = "-1" ] && return 0
-    if [ -n "$ipv4" ] && [ -n "$modem_netcard" ]; then
-        for i in 1 2; do
-            if ping -I "$modem_netcard" -w 1 1.1.1.1 >/dev/null 2>&1 || 
-               ping -I "$modem_netcard" -w 2 8.8.8.8 >/dev/null 2>&1; then
-                break
-            fi
-            if [ $i -eq 2 ]; then
-                m_debug "IPv4 connection test failed, will redial"
-                return 1
-            fi
-            sleep 1
-        done
-        local ifup_time=$(ubus call network.interface.$interface6_name status 2>/dev/null | jsonfilter -e '@.uptime' 2>/dev/null || echo 0)
-        if [ "$ifup_time" -gt 5 ] && [ "$pdp_type" = "ipv4v6" ]; then
-            rdisc6 $origin_device &
-            ndisc6 fe80::1 $origin_device &
-        fi
-    fi
-    return 0
 }
 
 append_to_fw_zone()
@@ -686,7 +663,7 @@ mhi_dial()
 qmi_dial()
 {
     cmd_line="quectel-CM"
-    [ -e "/usr/bin/quectel-CM-M" ] && cmd_line="quectel-CM-M"
+    [ -e "/usr/bin/quectel-CM-M" ] && cmd_line="quectel-CM-M" && tom_modified=1
     case $pdp_type in
         "ip") cmd_line="$cmd_line -4" ;;
         "ipv6") cmd_line="$cmd_line -6" ;;
@@ -697,7 +674,7 @@ qmi_dial()
     if [ "$network_bridge" = "1" ]; then
         cmd_line="$cmd_line -b"
     fi
-    if [ -n "$pdp_index" ]; then
+    if [ -n "$pdp_index" ] && [ "$userset_pdp_index" = "1" ]; then
         cmd_line="$cmd_line -n $pdp_index"
     fi
     if [ "$manufacturer" = "telit" ];then
@@ -741,14 +718,16 @@ qmi_dial()
     fi
     if [ -e "/usr/bin/quectel-CM-M" ];then
         [ -n "$metric" ] && cmd_line="$cmd_line -d -M $metric"
+        [ "$force_set_apn" == "1" ] && cmd_line="$cmd_line -F"
     else
         [ -n "$metric" ] && cmd_line="$cmd_line"
     fi
     cmd_line="$cmd_line -f $log_file"
-    m_debug "dialing $cmd_line"
-    exec $cmd_line
-    
-    
+    while true; do
+        m_debug "dialing: $cmd_line"
+        $cmd_line
+        m_debug "quectel-CM exited, retrying dial"
+    done
 }
 
 at_dial()
@@ -771,7 +750,7 @@ at_dial()
                     ;;
                 *)
                     at_command="AT+QNETDEVCTL=$pdp_index,3,1"
-                    cgdcont_command="AT+CGDCONT=$pdp_index1,\"$pdp_type\",\"$apn\""
+                    cgdcont_command="AT+CGDCONT=$pdp_index,\"$pdp_type\",\"$apn\""
                     ;;
             esac
             ;;
@@ -786,7 +765,40 @@ at_dial()
                 "lte")
                     at_command="AT+GTRNDIS=1,$pdp_index"
                     cgdcont_command="AT+CGDCONT=$pdp_index,\"$pdp_type\",\"$apn\""
+                    if [ -n "$auth" ]; then
+                        case $auth in
+                            "pap") 
+                                auth_num=1 ;;
+                            "chap") 
+                                auth_num=2 ;;
+                            "auto"|"both"|"MsChapV2") 
+                                auth_num=3 ;;
+                            *) 
+                                auth_num=0 ;;
+                        esac
+                        if [ -n "$username" ] || [ -n "$password" ] && [ "$auth_num" != "0" ] ; then
+                            ppp_auth_command="AT+MGAUTH=$pdp_index,$auth_num,\"$username\",\"$password\""
+                        fi
+                    fi
                     ;;
+                "unisoc")
+                    at_command="AT+GTRNDIS=1,$pdp_index"
+                    cgdcont_command="AT+CGDCONT=$pdp_index,\"$pdp_type\",\"$apn\""
+                    if [ -n "$auth" ]; then
+                        case $auth in
+                            "pap") 
+                                auth_num=1 ;;
+                            "chap") 
+                                auth_num=2 ;;
+                            "auto"|"both"|"MsChapV2") 
+                                auth_num=3 ;;
+                            *) 
+                                auth_num=0 ;;
+                        esac
+                        if [ -n "$username" ] || [ -n "$password" ] && [ "$auth_num" != "0" ] ; then
+                            ppp_auth_command="AT+MGAUTH=$pdp_index,$auth_num,\"$username\",\"$password\""
+                        fi
+                    fi
             esac
             ;;
         "huawei")
@@ -831,21 +843,23 @@ at_dial()
             esac
             ;;
     esac
-    at "${at_port}" "${cgdcont_command}"
-    if [ "$driver" = "mtk_pcie" ];then
-	m_debug "dialing vendor:$manufacturer;platform:$platform;$driver;$apn "
-        mbim_port=$(echo "$at_port" | sed 's/at/mbim/g')
-	rf_status=$(umbim -d  $mbim_port radio|sed -n 's/.*swradiostate: *//p')
-	if [ "$rf_status" = "off" ]; then
-    		umbim -d  $mbim_port radio on
-	fi
-	umbim -d $mbim_port disconnect
-        sleep 1
-        umbim -d $mbim_port connect 0 --apn $apn
-    else
-	m_debug "dialing vendor:$manufacturer;platform:$platform; $cgdcont_command ; $at_command"
-	fastat "$at_port" "$at_command"
-    fi
+	m_debug "dialing: vendor:$manufacturer; platform:$platform; driver:$driver; apn:$apn; command:$at_command"
+    m_debug "dial_cmd: $at_command; cgdcont_cmd: $cgdcont_command; ppp_auth_cmd: $ppp_auth_command"
+	case $driver in
+        "mtk_pcie")
+            mbim_port=$(echo "$at_port" | sed 's/at/mbim/g')
+        	rf_status=$(umbim -d  $mbim_port radio|sed -n 's/.*swradiostate: *//p')
+        	[ "$rf_status" = "off" ] && umbim -d  $mbim_port radio on
+        	umbim -d $mbim_port disconnect
+        	sleep 1
+        	umbim -d $mbim_port connect 0 --apn $apn
+		 	;;
+		*)
+  			at "${at_port}" "${cgdcont_command}"
+            [ -n "$ppp_auth_command" ] && at "${at_port}" "$ppp_auth_command"
+        	at "$at_port" "$at_command"
+		 	;;
+	esac
 }
 
 ip_change_fm350()
@@ -1027,7 +1041,16 @@ at_dial_monitor()
                     ipv4_cache=$ipv4
                     ipv6_cache=$ipv6
                 fi
-                [ "$connect_check" -eq 1 ] && { sleep 5; check_connection || { hang && at_dial; }; } || sleep 15
+
+                pdp_type=$(echo $pdp_type | tr 'A-Z' 'a-z')
+                if [ "$pdp_type" = "ipv4v6" ]; then
+                    local ifup_time=$(ubus call network.interface.$interface6_name status 2>/dev/null | jsonfilter -e '@.uptime' 2>/dev/null || echo 0)
+                    local origin_device=$(uci -q get network.$interface_name.device 2>/dev/null || echo "")
+                    [ "$ifup_time" -lt 5 ] && continue
+                    rdisc6 $origin_device &
+                    ndisc6 fe80::1 $origin_device &
+                fi
+                sleep 15
                 ;;
         esac
         check_logfile_line
