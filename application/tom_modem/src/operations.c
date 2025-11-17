@@ -100,6 +100,7 @@ int sms_read(PROFILE_T *profile, void *transport_ptr)
     {
         char *line = strtok(response_text, "\n");
         int sms_count = 0;
+        char *pdu;
 
         while (line != NULL)
         {
@@ -107,10 +108,16 @@ int sms_read(PROFILE_T *profile, void *transport_ptr)
             {
                 sms = (SMS_T *)malloc(sizeof(SMS_T));
                 memset(sms, 0, sizeof(SMS_T));
-                char *pdu = strtok(NULL, "\n");
+                
+                pdu = strtok(NULL, "\n");
+                if (pdu == NULL || strlen(pdu) < 3) {
+                    dbg_msg("No PDU found for line: %s", line);
+                    pdu = strtok(NULL, "\n");
+                }
                 sms->sms_pdu = (char *)malloc(strlen(pdu));
                 sms->sender = (char *)malloc(PHONE_NUMBER_SIZE);
                 sms->sms_text = (char *)malloc(SMS_TEXT_SIZE);
+                memset(sms->sms_text, 0, SMS_TEXT_SIZE);
                 sms->sms_index = get_sms_index(line);
                 memcpy(sms->sms_pdu, pdu, strlen(pdu));
                 int sms_len = decode_pdu(sms);
@@ -126,6 +133,7 @@ int sms_read(PROFILE_T *profile, void *transport_ptr)
                 }
             }
             line = strtok(NULL, "\n");
+
         }
 
         display_sms_in_json(sms_list, sms_count);
@@ -215,17 +223,22 @@ int sms_read_unread(PROFILE_T *profile, void *transport_ptr)
     {
         char *line = strtok(response_text, "\n");
         int sms_count = 0;
-
+        char *pdu;
         while (line != NULL)
         {
             if (strncmp(line, "+CMGL:", 6) == 0)
             {
                 sms = (SMS_T *)malloc(sizeof(SMS_T));
                 memset(sms, 0, sizeof(SMS_T));
-                char *pdu = strtok(NULL, "\n");
+                pdu = strtok(NULL, "\n");
+                if (pdu == NULL || strlen(pdu) < 3) {
+                    dbg_msg("No PDU found for line: %s", line);
+                    pdu = strtok(NULL, "\n");
+                }
                 sms->sms_pdu = (char *)malloc(strlen(pdu));
                 sms->sender = (char *)malloc(PHONE_NUMBER_SIZE);
                 sms->sms_text = (char *)malloc(SMS_TEXT_SIZE);
+                memset(sms->sms_text, 0, SMS_TEXT_SIZE);
                 sms->sms_index = get_sms_index(line);
                 memcpy(sms->sms_pdu, pdu, strlen(pdu));
                 int sms_len = decode_pdu(sms);
