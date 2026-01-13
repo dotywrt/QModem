@@ -5,36 +5,68 @@ USE_PROCD=1
 
 . /usr/share/libubox/jshn.sh
 . /lib/functions.sh
-start_service()
-{
+
+NFT="/usr/sbin/nft"
+NFT_DIR="/etc/nftables.d"
+NFT_FILE="$NFT_DIR/ttl64.nft"
+
+start_service() {
     config_load 'qmodem_ttl'
     config_get enable 'main' 'enable' '0'
-    if [ "$enable" == 0 ]; then
-        return
-    fi
+    [ "$enable" = "0" ] && return 0
+
     set_if_ttl
 }
 
-set_if_ttl()
-{
+set_if_ttl() {
     config_get ttl 'main' 'ttl'
-    IPT="iptables"
-    IPT6="ip6tables"
-    logger -t modem_ttl "Ovrewirte TTL from br-lan to $ttl"
-    comment="modem_ttl"
-    touch /etc/firewall.d/qmodem_ttl
-    echo "$IPT -t mangle -A POSTROUTING -j TTL --ttl-set $ttl -m comment --comment $comment" >> /etc/firewall.d/qmodem_ttl
-    echo "$IPT6 -t mangle -A POSTROUTING -j HL --hl-set $ttl -m comment --comment $comment" >> /etc/firewall.d/qmodem_ttl
-    /etc/firewall.d/qmodem_ttl
+    [ -z "$ttl" ] && ttl=64
+
+    logger -t modem_ttl "Overwrite TTL / HopLimit to $ttl (nftables)"
+    mkdir -p $NFT_DIR
+    for f in $NFT_DIR/*.nft; do
+        [ -f "$f" ] && rm -f "$f"
+    done
+
+    cat > $NFT_FILE <<-EOF
+chain mangle_prerouting_ttl64 {
+    type filter hook prerouting priority 300; policy accept;
+    counter
+    meta nfproto ipv4 ip ttl set $ttl
+}
+
+chain mangle_postrouting_ttl64 {
+    type filter hook postrouting priority 300; policy accept;
+    counter
+    meta nfproto ipv4 ip ttl set $ttl
+}
+
+chain mangle_prerouting_hoplimit64 {
+    type filter hook prerouting priority 300; policy accept;
+    counter
+    meta nfproto ipv6 ip6 hoplimit set $ttl
+}
+
+chain mangle_postrouting_hoplimit64 {
+    type filter hook postrouting priority 300; policy accept;
+    counter
+    meta nfproto ipv6 ip6 hoplimit set $ttl
+}
+EOF
+
+    $NFT -f $NFT_FILE
     /etc/init.d/firewall restart
+
     [ -d /sys/kernel/debug/ecm/ ] && /etc/init.d/qca-nss-ecm stop
-    [ -d /sys/module/shortcut_fe_cm ] && rmmod shortcut_fe_cm
-    [ -d /sys/module/fast_classifier ] && rmmod fast_classifier
+    [ -d /sys/module/shortcut_fe_cm ] && rmmod shortcut_fe_cm 2>/dev/null
+    [ -d /sys/module/fast_classifier ] && rmmod fast_classifier 2>/dev/null
 }
 
 stop_service(){
+    logger -t modem_ttl "Remove TTL / HopLimit nft rules"
     local kernel_version=$(uname -r)
     rm -f /etc/firewall.d/qmodem_ttl
+    rm -f /etc/nftables.d/*.nft
     [ -f /etc/init.d/qca-nss-ecm ] && /etc/init.d/qca-nss-ecm start
     [ -e "/lib/modules/$kernel_version/shortcut-fe-cm.ko" ] && modprobe shortcut-fe-cm
     [ -e "/lib/modules/$kernel_version/fast-classifier.ko" ] && modprobe fast-classifier
