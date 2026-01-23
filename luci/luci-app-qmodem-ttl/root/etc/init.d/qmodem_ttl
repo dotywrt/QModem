@@ -19,10 +19,11 @@ start_service() {
 }
 
 set_if_ttl() {
-    config_get ttl 'main' 'ttl'
-    [ -z "$ttl" ] && ttl=64
+    config_get ttl4 'main' 'ttl4' '64'
+    config_get hl6 'main' 'hl6' '64'
 
-    logger -t modem_ttl "Overwrite TTL / HopLimit to $ttl (nftables)"
+    logger -t modem_ttl "Overwrite IPv4 TTL to $ttl4 and IPv6 Hop Limit to $hl6 (nftables)"
+
     mkdir -p $NFT_DIR
     for f in $NFT_DIR/*.nft; do
         [ -f "$f" ] && rm -f "$f"
@@ -32,25 +33,25 @@ set_if_ttl() {
 chain mangle_prerouting_ttl64 {
     type filter hook prerouting priority 300; policy accept;
     counter
-    meta nfproto ipv4 ip ttl set $ttl
+    meta nfproto ipv4 ip ttl set $ttl4
 }
 
 chain mangle_postrouting_ttl64 {
     type filter hook postrouting priority 300; policy accept;
     counter
-    meta nfproto ipv4 ip ttl set $ttl
+    meta nfproto ipv4 ip ttl set $ttl4
 }
 
 chain mangle_prerouting_hoplimit64 {
     type filter hook prerouting priority 300; policy accept;
     counter
-    meta nfproto ipv6 ip6 hoplimit set $ttl
+    meta nfproto ipv6 ip6 hoplimit set $hl6
 }
 
 chain mangle_postrouting_hoplimit64 {
     type filter hook postrouting priority 300; policy accept;
     counter
-    meta nfproto ipv6 ip6 hoplimit set $ttl
+    meta nfproto ipv6 ip6 hoplimit set $hl6
 }
 EOF
 
